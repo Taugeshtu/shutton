@@ -47,7 +47,7 @@ v0.4.0
 - [ ] persistence into the binary itself upon running
 
 v0.3.0
-- [ ] additional arguments fields
+- [x] additional arguments fields
 
 v0.2.0
 - [x] log action buttons: view, copy, drop as file
