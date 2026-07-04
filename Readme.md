@@ -39,6 +39,10 @@ cargo install --path . --root .
 
 ## Version history
 
+future
+- [ ] work with needing sudo, I guess?
+- [ ] figure out what we do if we have a shell script that needs extra input..
+
 v0.4.0
 - [ ] persistence into the binary itself upon running
 
@@ -46,8 +50,8 @@ v0.3.0
 - [ ] additional arguments fields
 
 v0.2.0
-- [ ] log action buttons: view, copy, drop as file
-- [ ] quit-on-done toggle
+- [x] log action buttons: view, copy, drop as file
+- [x] quit-on-done toggle
 
 v0.1.0
 - [x] present GUI, run shell script
