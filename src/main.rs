@@ -1,7 +1,8 @@
 use gtk4::{self as gtk, prelude::*, Application};
 
 mod ui;
-mod runner;
+mod core;
+mod storage;
 
 fn main() {
     let app = Application::builder().application_id("games.tau.shutton").build();

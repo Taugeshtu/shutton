@@ -44,7 +44,7 @@ future
 - [ ] figure out what we do if we have a shell script that needs extra input..
 
 v0.4.0
-- [ ] persistence into the binary itself upon running
+- [x] persistence into the binary itself upon running
 
 v0.3.0
 - [x] additional arguments fields

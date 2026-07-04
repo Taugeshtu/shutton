@@ -1,7 +1,64 @@
 use gtk4::{self as gtk, glib, prelude::*, Application, ApplicationWindow, Box, Button, CheckButton, Entry, Label, Orientation, ScrolledWindow, TextView};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
-use crate::runner::{execute, LogEvent};
+use crate::core::{execute, parse_vars, LogEvent};
+
+fn build_var_rows(
+    vbox_vars: &Box,
+    vars: &[String],
+    var_values: &Arc<Mutex<HashMap<String, String>>>,
+) {
+    // Clear old dynamic widgets in vbox_vars
+    while let Some(child) = vbox_vars.first_child() {
+        vbox_vars.remove(&child);
+    }
+
+    // Create and attach new rows
+    for var in vars {
+        let row_box = Box::new(Orientation::Horizontal, 8);
+
+        let label = Label::new(Some(var));
+        label.set_width_chars(12);
+        label.set_max_width_chars(12);
+        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        label.set_halign(gtk::Align::End);
+        label.set_opacity(0.8);
+
+        let val = var_values.lock().unwrap().get(var).cloned().unwrap_or_default();
+        let var_entry = Entry::builder()
+            .hexpand(true)
+            .text(&val)
+            .placeholder_text(&format!("Value for %{}...", var))
+            .build();
+
+        let var_values_clone = var_values.clone();
+        let var_clone = var.clone();
+        var_entry.connect_changed(move |e| {
+            var_values_clone.lock().unwrap().insert(var_clone.clone(), e.text().to_string());
+        });
+
+        row_box.append(&label);
+        row_box.append(&var_entry);
+        vbox_vars.append(&row_box);
+    }
+}
+
+fn grab_initial_focus(entry: &Entry, vbox_vars: &Box) {
+    let mut focus_grabbed = false;
+    if let Some(first_child) = vbox_vars.first_child() {
+        if let Some(row_box) = first_child.downcast_ref::<gtk::Box>() {
+            if let Some(entry_widget) = row_box.last_child() {
+                if let Some(var_entry) = entry_widget.downcast_ref::<gtk::Entry>() {
+                    var_entry.grab_focus();
+                    focus_grabbed = true;
+                }
+            }
+        }
+    }
+    if !focus_grabbed {
+        entry.grab_focus();
+    }
+}
 
 pub fn activate(app: &Application) {
     let window = ApplicationWindow::builder()
@@ -94,9 +151,35 @@ pub fn activate(app: &Application) {
     vbox.append(&hbox_bottom);
     vbox.append(&log_scroll);
 
+    // Load initial config from binary tail
+    let config_opt = crate::storage::read_config();
+    let initial_cmd = if let Some(ref cfg) = config_opt {
+        cfg.main_cmd.clone()
+    } else {
+        String::new()
+    };
+    let initial_autoquit = if let Some(ref cfg) = config_opt {
+        cfg.autoquit
+    } else {
+        true
+    };
+    quit_toggle.set_active(initial_autoquit);
+
     // Shared state
     let log_buffer = Arc::new(Mutex::new(String::new()));
     let var_values = Arc::new(Mutex::new(HashMap::<String, String>::new()));
+    
+    // Seed initial var values from loaded config
+    if let Some(ref cfg) = config_opt {
+        let parsed = parse_vars(&cfg.main_cmd);
+        let mut vals = var_values.lock().unwrap();
+        for (i, var) in parsed.iter().enumerate() {
+            if let Some(val) = cfg.var_values.get(i) {
+                vals.insert(var.clone(), val.clone());
+            }
+        }
+    }
+
     let current_vars = Arc::new(Mutex::new(Vec::<String>::new()));
 
     // Window resize helper
@@ -120,24 +203,7 @@ pub fn activate(app: &Application) {
         
         move || {
             let text = entry.text().to_string();
-            
-            // Parse unique variables in order
-            let mut new_vars = Vec::new();
-            let mut chars = text.chars().peekable();
-            while let Some(c) = chars.next() {
-                if c == '%' {
-                    let mut name = String::new();
-                    while let Some(&next_c) = chars.peek() {
-                        if next_c.is_whitespace() {
-                            break;
-                        }
-                        name.push(chars.next().unwrap());
-                    }
-                    if !name.is_empty() && !new_vars.contains(&name) {
-                        new_vars.push(name);
-                    }
-                }
-            }
+            let new_vars = parse_vars(&text);
 
             // Rebuild only if variables list changed
             let vars_changed = {
@@ -154,40 +220,7 @@ pub fn activate(app: &Application) {
                 return;
             }
 
-            // Clear old dynamic widgets in vbox_vars
-            while let Some(child) = vbox_vars.first_child() {
-                vbox_vars.remove(&child);
-            }
-
-            // Create and attach new rows
-            for var in new_vars.iter() {
-                let row_box = Box::new(Orientation::Horizontal, 8);
-
-                let label = Label::new(Some(var));
-                label.set_width_chars(12);
-                label.set_max_width_chars(12);
-                label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                label.set_halign(gtk::Align::End);
-                label.set_opacity(0.8);
-
-                let val = var_values.lock().unwrap().get(var).cloned().unwrap_or_default();
-                let var_entry = Entry::builder()
-                    .hexpand(true)
-                    .text(&val)
-                    .placeholder_text(&format!("Value for %{}...", var))
-                    .build();
-
-                let var_values_clone = var_values.clone();
-                let var_clone = var.clone();
-                var_entry.connect_changed(move |e| {
-                    var_values_clone.lock().unwrap().insert(var_clone.clone(), e.text().to_string());
-                });
-
-                row_box.append(&label);
-                row_box.append(&var_entry);
-                vbox_vars.append(&row_box);
-            }
-
+            build_var_rows(&vbox_vars, &new_vars, &var_values);
             resize_window(new_vars.len());
         }
     };
@@ -196,6 +229,9 @@ pub fn activate(app: &Application) {
     entry.connect_changed(move |_| {
         update_vars_clone();
     });
+
+    // Populate main entry which triggers the rows to render
+    entry.set_text(&initial_cmd);
 
     // Button [v] toggles visibility and resizes window
     let log_scroll_clone = log_scroll.clone();
@@ -236,19 +272,31 @@ pub fn activate(app: &Application) {
     let log_buffer_receiver = log_buffer.clone();
     let quit_toggle_clone = quit_toggle.clone();
     let app_clone = app.clone();
+    let var_values_run = var_values.clone();
 
     let run_cmd = move || {
         let main_cmd = entry_clone.text().to_string();
         if main_cmd.is_empty() { return; }
         
-        // Substitute variables
-        let mut cmd = main_cmd.clone();
-        let values = var_values.lock().unwrap();
-        for (var, val) in values.iter() {
-            cmd = cmd.replace(&format!("%{}", var), val);
-        }
+        let autoquit = quit_toggle_clone.is_active();
 
-        // Clear UI log
+        // 1. Gather variables values in order of parsed variables to construct Config
+        let parsed_vars = parse_vars(&main_cmd);
+        let mut var_vals = Vec::new();
+        {
+            let values = var_values_run.lock().unwrap();
+            for var in &parsed_vars {
+                let val = values.get(var).cloned().unwrap_or_default();
+                var_vals.push(val);
+            }
+        }
+        let config = crate::storage::Config {
+            autoquit,
+            main_cmd: main_cmd.clone(),
+            var_values: var_vals,
+        };
+
+        // 2. Clear UI log
         log_view_clone.buffer().set_text("");
         log_buffer_receiver.lock().unwrap().clear();
         run_btn_clone.set_sensitive(false);
@@ -256,8 +304,8 @@ pub fn activate(app: &Application) {
         // Create standard channel
         let (sender, receiver) = std::sync::mpsc::channel::<LogEvent>();
 
-        // Spawn worker thread via runner
-        execute(cmd, sender);
+        // 3. Delegate execution & binary saving to core module
+        execute(config, sender);
 
         // Start GLib timeout to poll receiver
         let log_view_poll = log_view_clone.clone();
@@ -314,4 +362,6 @@ pub fn activate(app: &Application) {
 
     window.set_child(Some(&vbox));
     window.present();
+
+    grab_initial_focus(&entry, &vbox_vars);
 }
