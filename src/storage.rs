@@ -6,6 +6,7 @@ const MAGIC: &[u8; 8] = b"SHUTTNCF";
 #[derive(Clone, Debug)]
 pub struct Config {
     pub autoquit: bool,
+    pub width: i32,
     pub main_cmd: String,
     pub var_values: Vec<String>,
 }
@@ -14,7 +15,7 @@ pub fn read_config() -> Option<Config> {
     let exe_path = std::env::current_exe().ok()?;
     let mut file = File::open(&exe_path).ok()?;
     let file_len = file.metadata().ok()?.len();
-    if file_len < 17 {
+    if file_len < 21 {
         return None;
     }
     
@@ -32,8 +33,14 @@ pub fn read_config() -> Option<Config> {
     file.read_exact(&mut aq_buf).ok()?;
     let autoquit = aq_buf[0] != 0;
     
-    // Read number of strings
+    // Read width (4 bytes)
     file.seek(SeekFrom::End(-13)).ok()?;
+    let mut w_buf = [0u8; 4];
+    file.read_exact(&mut w_buf).ok()?;
+    let width = i32::from_le_bytes(w_buf);
+    
+    // Read number of strings
+    file.seek(SeekFrom::End(-17)).ok()?;
     let mut num_buf = [0u8; 4];
     file.read_exact(&mut num_buf).ok()?;
     let num_strings = u32::from_le_bytes(num_buf) as usize;
@@ -43,7 +50,7 @@ pub fn read_config() -> Option<Config> {
     }
     
     // Read lengths
-    let offset_lengths = 13 + (num_strings * 4) as i64;
+    let offset_lengths = 17 + (num_strings * 4) as i64;
     file.seek(SeekFrom::End(-offset_lengths)).ok()?;
     let mut lengths = Vec::new();
     for _ in 0..num_strings {
@@ -73,6 +80,7 @@ pub fn read_config() -> Option<Config> {
     
     Some(Config {
         autoquit,
+        width,
         main_cmd,
         var_values: strings,
     })
@@ -84,17 +92,17 @@ pub fn patch_config(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     
     let file_len = file_bytes.len();
     let mut payload_len = 0;
-    if file_len >= 13 {
+    if file_len >= 17 {
         let magic_start = file_len - 8;
         if &file_bytes[magic_start..] == MAGIC {
-            let num_start = file_len - 13;
+            let num_start = file_len - 17;
             let mut num_bytes = [0u8; 4];
             num_bytes.copy_from_slice(&file_bytes[num_start..num_start + 4]);
             let num_strings = u32::from_le_bytes(num_bytes) as usize;
             
             let lengths_len = num_strings * 4;
-            if file_len >= 13 + lengths_len {
-                let lengths_start = file_len - 13 - lengths_len;
+            if file_len >= 17 + lengths_len {
+                let lengths_start = file_len - 17 - lengths_len;
                 let mut total_str_len = 0;
                 for i in 0..num_strings {
                     let idx = lengths_start + i * 4;
@@ -103,8 +111,8 @@ pub fn patch_config(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
                     total_str_len += u32::from_le_bytes(len_bytes) as usize;
                 }
                 
-                if file_len >= 13 + lengths_len + total_str_len {
-                    payload_len = 13 + lengths_len + total_str_len;
+                if file_len >= 17 + lengths_len + total_str_len {
+                    payload_len = 17 + lengths_len + total_str_len;
                 }
             }
         }
@@ -133,6 +141,8 @@ pub fn patch_config(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     
     let num_strings = strings.len() as u32;
     file_bytes.extend_from_slice(&num_strings.to_le_bytes());
+    
+    file_bytes.extend_from_slice(&config.width.to_le_bytes());
     
     let aq_byte = if config.autoquit { 1u8 } else { 0u8 };
     file_bytes.push(aq_byte);

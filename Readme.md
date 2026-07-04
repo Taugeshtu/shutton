@@ -2,15 +2,26 @@
 
 ## why shutton
 
-I am a visual person, it is easier for me to navigate the digital side of my life in Thunar. I also use scripts. I want BUTTONS to launch my scripts!
+I am a visual person. It is easier for me to navigate the digital side of my life in Thunar. I also use scripts. I want BUTTONS to launch my scripts. Yes, inside folders. No you're weird!
 
 ## how shutton
 
-minimalist Rust app that presents a text input, runs a shell command, shows/copies/filedrops output. Persists into itself, and can therefore be copy-pasted throughout your system and configured to do many useful things
+![shutton interface](docs/shutton.png)
+
+minimalist Rust app that presents a text input, runs a shell command, and shows/copies/filedrops output. Persists into itself, and can therefore be copy-pasted throughout your system and configured to do many useful things, in-place. Maybe even many copies inside the same folder. Go nuts.
 
 ## Usage
 
-{quick-jump (not overwhelming) instructions how to use}
+- copy the binary (see below) to where you want something executed from
+- write a shell command (e.g. `chaffa %image`)
+- fill in `%dynamic` `%variables` from the command
+- decide if you want it to also quit on completion, or hang around
+- **[Enter]** to run
+- **[Esc]** to quit
+
+buttons/fields/toggles have tooltips.
+on execution, the binary will auto-patch itself to memorize what was ran and how.
+_(for extra smarts, drop the binary into your `Templates` folder!)_
 
 ---
 
@@ -25,17 +36,18 @@ sudo dnf install gtk4-devel
 _(have instructions for your repo? happy to add - make an issue with them!)_
 
 build & install with cargo:
-```bash
-cargo install --git https://github.com/Taugeshtu/shutton --root ~/.local
-```
-
-_Alternatively:_
 ```sh
-# navigate to where you want it to live, for example, ~/Applications/Gits
+# navigate to where you build apps, for example, ~/Applications/Gits
 git clone https://github.com/Taugeshtu/shutton
 cd shutton
-cargo install --path . --root .
+cargo build --release
+# optionally:
+cp target/release/shutton ~/Templates/
 ```
+
+then drop the built `shutton` wherever you need it!
+
+---
 
 ## Version history
 
@@ -43,8 +55,12 @@ future
 - [ ] work with needing sudo, I guess?
 - [ ] figure out what we do if we have a shell script that needs extra input..
 
+v0.4.2
+- [x] also persisting window width (why not)
+- [x] fixed variables parsing to instead extract `a1phanum3r1cs` and `_`
+
 v0.4.0
-- [x] persistence into the binary itself upon running
+- [x] persistence into the binary itself (main command, arguments, autoquit, window width)
 
 v0.3.0
 - [x] additional arguments fields

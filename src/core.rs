@@ -13,10 +13,11 @@ pub fn parse_vars(text: &str) -> Vec<String> {
         if c == '%' {
             let mut name = String::new();
             while let Some(&next_c) = chars.peek() {
-                if next_c.is_whitespace() {
+                if next_c.is_alphanumeric() || next_c == '_' {
+                    name.push(chars.next().unwrap());
+                } else {
                     break;
                 }
-                name.push(chars.next().unwrap());
             }
             if !name.is_empty() && !vars.contains(&name) {
                 vars.push(name);

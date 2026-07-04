@@ -61,9 +61,27 @@ fn grab_initial_focus(entry: &Entry, vbox_vars: &Box) {
 }
 
 pub fn activate(app: &Application) {
+    // Load initial config from binary tail
+    let config_opt = crate::storage::read_config();
+    let initial_cmd = if let Some(ref cfg) = config_opt {
+        cfg.main_cmd.clone()
+    } else {
+        String::new()
+    };
+    let initial_autoquit = if let Some(ref cfg) = config_opt {
+        cfg.autoquit
+    } else {
+        true
+    };
+    let initial_width = if let Some(ref cfg) = config_opt {
+        cfg.width
+    } else {
+        900
+    };
+
     let window = ApplicationWindow::builder()
         .application(app).title("shutton")
-        .default_width(900).default_height(100).build();
+        .default_width(initial_width).default_height(100).build();
     
     let vbox = Box::new(Orientation::Vertical, 6);
     vbox.set_margin_top(8); vbox.set_margin_bottom(8);
@@ -86,7 +104,7 @@ pub fn activate(app: &Application) {
     let vbox_right = Box::new(Orientation::Vertical, 6);
     
     let quit_toggle = CheckButton::with_label("quit");
-    quit_toggle.set_active(true);
+    quit_toggle.set_active(initial_autoquit);
     quit_toggle.set_tooltip_text(Some("Quit on done"));
     quit_toggle.set_valign(gtk::Align::Center);
     
@@ -151,20 +169,6 @@ pub fn activate(app: &Application) {
     vbox.append(&hbox_bottom);
     vbox.append(&log_scroll);
 
-    // Load initial config from binary tail
-    let config_opt = crate::storage::read_config();
-    let initial_cmd = if let Some(ref cfg) = config_opt {
-        cfg.main_cmd.clone()
-    } else {
-        String::new()
-    };
-    let initial_autoquit = if let Some(ref cfg) = config_opt {
-        cfg.autoquit
-    } else {
-        true
-    };
-    quit_toggle.set_active(initial_autoquit);
-
     // Shared state
     let log_buffer = Arc::new(Mutex::new(String::new()));
     let var_values = Arc::new(Mutex::new(HashMap::<String, String>::new()));
@@ -182,14 +186,15 @@ pub fn activate(app: &Application) {
 
     let current_vars = Arc::new(Mutex::new(Vec::<String>::new()));
 
-    // Window resize helper
+    // Window resize helper - preserves active user-resized width
     let resize_window = {
         let window = window.clone();
         let log_scroll = log_scroll.clone();
         move |vars_count: usize| {
             let base_height = if log_scroll.is_visible() { 300 } else { 100 };
             let target_height = base_height + (vars_count * 38) as i32;
-            window.set_default_size(900, target_height);
+            let current_width = window.width();
+            window.set_default_size(current_width, target_height);
         }
     };
 
@@ -273,12 +278,14 @@ pub fn activate(app: &Application) {
     let quit_toggle_clone = quit_toggle.clone();
     let app_clone = app.clone();
     let var_values_run = var_values.clone();
+    let window_run = window.clone();
 
     let run_cmd = move || {
         let main_cmd = entry_clone.text().to_string();
         if main_cmd.is_empty() { return; }
         
         let autoquit = quit_toggle_clone.is_active();
+        let width = window_run.width();
 
         // 1. Gather variables values in order of parsed variables to construct Config
         let parsed_vars = parse_vars(&main_cmd);
@@ -292,6 +299,7 @@ pub fn activate(app: &Application) {
         }
         let config = crate::storage::Config {
             autoquit,
+            width,
             main_cmd: main_cmd.clone(),
             var_values: var_vals,
         };
