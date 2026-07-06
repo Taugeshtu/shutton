@@ -37,13 +37,48 @@ pub fn execute(config: crate::storage::Config, sender: std::sync::mpsc::Sender<L
         }
     }
 
-    // 3. Spawn background thread
+    // Spawn background thread
     std::thread::spawn(move || {
-        let child = Command::new("sh")
-            .arg("-c")
+        let pid = std::process::id();
+        let temp_dir = std::env::temp_dir().join(format!("shutton-sudo-{}", pid));
+        
+        let mut setup_ok = false;
+        if std::fs::create_dir_all(&temp_dir).is_ok() {
+            let sudo_script = temp_dir.join("sudo");
+            if std::fs::write(&sudo_script, "#!/bin/sh\nexec pkexec \"$@\"\n").is_ok() {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(metadata) = std::fs::metadata(&sudo_script) {
+                    let mut perms = metadata.permissions();
+                    perms.set_mode(0o755);
+                    if std::fs::set_permissions(&sudo_script, perms).is_ok() {
+                        setup_ok = true;
+                    }
+                }
+            }
+        }
+
+        let mut child_cmd = Command::new("sh");
+        child_cmd.arg("-c")
             .arg(format!("{} 2>&1", cmd))
-            .stdout(Stdio::piped())
-            .spawn();
+            .stdout(Stdio::piped());
+
+        if setup_ok {
+            let current_path = std::env::var_os("PATH").unwrap_or_default();
+            let mut new_path = temp_dir.clone().into_os_string();
+            new_path.push(":");
+            new_path.push(current_path);
+            child_cmd.env("PATH", new_path);
+        }
+
+        use std::os::unix::process::CommandExt;
+        unsafe {
+            child_cmd.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+                Ok(())
+            });
+        }
+
+        let child = child_cmd.spawn();
 
         match child {
             Ok(mut child) => {
@@ -64,6 +99,10 @@ pub fn execute(config: crate::storage::Config, sender: std::sync::mpsc::Sender<L
                 let _ = sender.send(LogEvent::Line(format!("Error: {}\n", e)));
                 let _ = sender.send(LogEvent::Finished);
             }
+        }
+
+        if setup_ok {
+            let _ = std::fs::remove_dir_all(&temp_dir);
         }
     });
 }

@@ -8,7 +8,7 @@ I am a visual person. It is easier for me to navigate the digital side of my lif
 
 ![shutton interface](docs/shutton.png)
 
-minimalist Rust app that presents a text input, runs a shell command, and shows/copies/filedrops output. Persists into itself, and can therefore be copy-pasted throughout your system and configured to do many useful things, in-place. Maybe even many copies inside the same folder. Go nuts.
+minimalist *(<1MB)* Rust app that presents a text input, runs a shell command, and shows/copies/filedrops output. Persists into itself, and can therefore be copy-pasted throughout your system and configured to do many useful things, in-place. Maybe even many copies inside the same folder. Go nuts.
 
 ## Usage
 
@@ -52,9 +52,8 @@ then drop the built `shutton` wherever you need it!
 
 ## Version history
 
-future
-- [ ] work with needing sudo, I guess?
-- [ ] figure out what we do if we have a shell script that needs extra input..
+v1.0.0
+- [x] pop policy-kit when encountering sudo requirement
 
 v0.5.0
 - [x] description text field, for more elaborate things
