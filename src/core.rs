@@ -28,11 +28,6 @@ pub fn parse_vars(text: &str) -> Vec<String> {
 }
 
 pub fn execute(config: crate::storage::Config, sender: std::sync::mpsc::Sender<LogEvent>) {
-    // 1. Save config to binary
-    if let Err(e) = crate::storage::patch_config(&config) {
-        eprintln!("Error saving config to binary: {}", e);
-    }
-
     // 2. Perform variable substitution for execution
     let mut cmd = config.main_cmd.clone();
     let parsed_vars = parse_vars(&config.main_cmd);
@@ -57,7 +52,8 @@ pub fn execute(config: crate::storage::Config, sender: std::sync::mpsc::Sender<L
                     for line in reader.lines() {
                         if let Ok(mut l) = line {
                             l.push('\n');
-                            let _ = sender.send(LogEvent::Line(l));
+                            let clean = strip_ansi(&l);
+                            let _ = sender.send(LogEvent::Line(clean));
                         }
                     }
                 }
@@ -70,4 +66,25 @@ pub fn execute(config: crate::storage::Config, sender: std::sync::mpsc::Sender<L
             }
         }
     });
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                while let Some(&next_c) = chars.peek() {
+                    chars.next();
+                    if next_c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
 }

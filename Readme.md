@@ -18,6 +18,7 @@ minimalist Rust app that presents a text input, runs a shell command, and shows/
 - decide if you want it to also quit on completion, or hang around
 - **[Enter]** to run
 - **[Esc]** to quit
+- **[Ctrl]+[S]** to save
 
 buttons/fields/toggles have tooltips.
 on execution, the binary will auto-patch itself to memorize what was ran and how.
@@ -54,6 +55,13 @@ then drop the built `shutton` wherever you need it!
 future
 - [ ] work with needing sudo, I guess?
 - [ ] figure out what we do if we have a shell script that needs extra input..
+
+v0.5.0
+- [x] description text field, for more elaborate things
+- [x] persisting state of unfold for description and logs
+- [x] `ctrl+s` to save state
+- [x] monospace command, arguments, and log fields
+- [x] stripping ANSI extras for clean log
 
 v0.4.2
 - [x] also persisting window width (why not)

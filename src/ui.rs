@@ -1,4 +1,4 @@
-use gtk4::{self as gtk, glib, prelude::*, Application, ApplicationWindow, Box, Button, CheckButton, Entry, Label, Orientation, ScrolledWindow, TextView};
+use gtk4::{self as gtk, glib, prelude::*, Application, ApplicationWindow, Box, Button, CheckButton, Entry, Label, Orientation, ScrolledWindow, TextView, ToggleButton};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use crate::core::{execute, parse_vars, LogEvent};
@@ -30,6 +30,7 @@ fn build_var_rows(
             .text(&val)
             .placeholder_text(&format!("Value for %{}...", var))
             .build();
+        var_entry.add_css_class("monospace");
 
         let var_values_clone = var_values.clone();
         let var_clone = var.clone();
@@ -78,6 +79,16 @@ pub fn activate(app: &Application) {
     } else {
         900
     };
+    let initial_description = if let Some(ref cfg) = config_opt {
+        cfg.description.clone()
+    } else {
+        String::new()
+    };
+    let initial_active_fold = if let Some(ref cfg) = config_opt {
+        cfg.active_fold
+    } else {
+        0
+    };
 
     let window = ApplicationWindow::builder()
         .application(app).title("shutton")
@@ -94,6 +105,7 @@ pub fn activate(app: &Application) {
     vbox_left.set_hexpand(true);
 
     let entry = Entry::builder().hexpand(true).placeholder_text("Enter command...").build();
+    entry.add_css_class("monospace");
     vbox_left.append(&entry);
 
     // Container for dynamic variable rows
@@ -123,18 +135,21 @@ pub fn activate(app: &Application) {
     // Separator
     let sep = gtk::Separator::new(Orientation::Horizontal);
 
-    // Bottom row: Log label on left, spacer in middle, icon buttons on right
+    // Bottom row: Description button on left, spacer in middle, log actions on right
     let hbox_bottom = Box::new(Orientation::Horizontal, 8);
     
-    let log_label = Label::new(Some("Log actions:"));
-    log_label.set_opacity(0.6);
+    let desc_btn = ToggleButton::with_label("Description");
+    desc_btn.set_tooltip_text(Some("Toggle description view"));
     
     let spacer = Box::new(Orientation::Horizontal, 0);
     spacer.set_hexpand(true);
     
     let buttons_box = Box::new(Orientation::Horizontal, 6);
     
-    let v_btn = Button::from_icon_name("pan-down-symbolic");
+    let log_label = Label::new(Some("log actions:"));
+    log_label.set_opacity(0.6);
+    
+    let v_btn = ToggleButton::builder().icon_name("pan-down-symbolic").build();
     v_btn.set_tooltip_text(Some("Toggle log view"));
     
     let c_btn = Button::from_icon_name("edit-copy-symbolic");
@@ -143,13 +158,26 @@ pub fn activate(app: &Application) {
     let o_btn = Button::from_icon_name("document-save-symbolic");
     o_btn.set_tooltip_text(Some("Save log to output.log"));
     
+    buttons_box.append(&log_label);
     buttons_box.append(&v_btn);
     buttons_box.append(&c_btn);
     buttons_box.append(&o_btn);
 
-    hbox_bottom.append(&log_label);
+    hbox_bottom.append(&desc_btn);
     hbox_bottom.append(&spacer);
     hbox_bottom.append(&buttons_box);
+
+    // Description scroll (hidden by default)
+    let desc_scroll = ScrolledWindow::builder()
+        .min_content_height(150)
+        .vexpand(true)
+        .visible(false)
+        .build();
+    let desc_view = TextView::builder()
+        .wrap_mode(gtk::WrapMode::Word)
+        .build();
+    desc_view.buffer().set_text(&initial_description);
+    desc_scroll.set_child(Some(&desc_view));
 
     // Log scroll (hidden by default)
     let log_scroll = ScrolledWindow::builder()
@@ -162,12 +190,14 @@ pub fn activate(app: &Application) {
         .cursor_visible(false)
         .wrap_mode(gtk::WrapMode::Word)
         .build();
+    log_view.add_css_class("monospace");
     log_scroll.set_child(Some(&log_view));
 
     vbox.append(&hbox_main);
     vbox.append(&sep);
     vbox.append(&hbox_bottom);
     vbox.append(&log_scroll);
+    vbox.append(&desc_scroll);
 
     // Shared state
     let log_buffer = Arc::new(Mutex::new(String::new()));
@@ -190,10 +220,15 @@ pub fn activate(app: &Application) {
     let resize_window = {
         let window = window.clone();
         let log_scroll = log_scroll.clone();
+        let desc_scroll = desc_scroll.clone();
         move |vars_count: usize| {
-            let base_height = if log_scroll.is_visible() { 300 } else { 100 };
+            let base_height = if log_scroll.is_visible() || desc_scroll.is_visible() { 300 } else { 100 };
             let target_height = base_height + (vars_count * 38) as i32;
-            let current_width = window.width();
+            let current_width = if window.is_realized() {
+                window.width()
+            } else {
+                initial_width
+            };
             window.set_default_size(current_width, target_height);
         }
     };
@@ -240,14 +275,41 @@ pub fn activate(app: &Application) {
 
     // Button [v] toggles visibility and resizes window
     let log_scroll_clone = log_scroll.clone();
+    let desc_scroll_clone = desc_scroll.clone();
+    let desc_btn_clone = desc_btn.clone();
     let resize_window_clone = resize_window.clone();
     let current_vars_clone = current_vars.clone();
-    v_btn.connect_clicked(move |_| {
-        let is_visible = !log_scroll_clone.is_visible();
-        log_scroll_clone.set_visible(is_visible);
+    v_btn.connect_toggled(move |btn| {
+        let active = btn.is_active();
+        if active {
+            desc_btn_clone.set_active(false);
+            desc_scroll_clone.set_visible(false);
+        }
+        log_scroll_clone.set_visible(active);
         let count = current_vars_clone.lock().unwrap().len();
         resize_window_clone(count);
     });
+
+    // Description button toggles visibility and resizes window
+    let log_scroll_clone2 = log_scroll.clone();
+    let desc_scroll_clone2 = desc_scroll.clone();
+    let v_btn_clone = v_btn.clone();
+    let resize_window_clone2 = resize_window.clone();
+    let current_vars_clone2 = current_vars.clone();
+    desc_btn.connect_toggled(move |btn| {
+        let active = btn.is_active();
+        if active {
+            v_btn_clone.set_active(false);
+            log_scroll_clone2.set_visible(false);
+        }
+        desc_scroll_clone2.set_visible(active);
+        let count = current_vars_clone2.lock().unwrap().len();
+        resize_window_clone2(count);
+    });
+
+    // Set initial active states (triggers toggled event handlers)
+    v_btn.set_active(initial_active_fold == 1);
+    desc_btn.set_active(initial_active_fold == 2);
 
     // Button [c] copies log to clipboard
     let log_buffer_clone = log_buffer.clone();
@@ -270,39 +332,70 @@ pub fn activate(app: &Application) {
         }
     });
 
+    // Compile config helper
+    let compile_config = {
+        let entry = entry.clone();
+        let quit_toggle = quit_toggle.clone();
+        let window = window.clone();
+        let log_scroll = log_scroll.clone();
+        let desc_scroll = desc_scroll.clone();
+        let desc_view = desc_view.clone();
+        let var_values = var_values.clone();
+        
+        move || {
+            let main_cmd = entry.text().to_string();
+            let autoquit = quit_toggle.is_active();
+            let width = window.width();
+
+            let active_fold = if log_scroll.is_visible() {
+                1
+            } else if desc_scroll.is_visible() {
+                2
+            } else {
+                0
+            };
+            let description = {
+                let buffer = desc_view.buffer();
+                let start = buffer.start_iter();
+                let end = buffer.end_iter();
+                buffer.text(&start, &end, false).to_string()
+            };
+
+            let parsed_vars = parse_vars(&main_cmd);
+            let mut var_vals = Vec::new();
+            {
+                let values = var_values.lock().unwrap();
+                for var in &parsed_vars {
+                    let val = values.get(var).cloned().unwrap_or_default();
+                    var_vals.push(val);
+                }
+            }
+            crate::storage::Config {
+                autoquit,
+                width,
+                main_cmd,
+                var_values: var_vals,
+                description,
+                active_fold,
+            }
+        }
+    };
+
     // Runner closure
-    let entry_clone = entry.clone();
     let run_btn_clone = run_btn.clone();
     let log_view_clone = log_view.clone();
     let log_buffer_receiver = log_buffer.clone();
     let quit_toggle_clone = quit_toggle.clone();
     let app_clone = app.clone();
-    let var_values_run = var_values.clone();
-    let window_run = window.clone();
+    let compile_config_run = compile_config.clone();
 
     let run_cmd = move || {
-        let main_cmd = entry_clone.text().to_string();
-        if main_cmd.is_empty() { return; }
+        let config = compile_config_run();
+        if config.main_cmd.is_empty() { return; }
         
-        let autoquit = quit_toggle_clone.is_active();
-        let width = window_run.width();
-
-        // 1. Gather variables values in order of parsed variables to construct Config
-        let parsed_vars = parse_vars(&main_cmd);
-        let mut var_vals = Vec::new();
-        {
-            let values = var_values_run.lock().unwrap();
-            for var in &parsed_vars {
-                let val = values.get(var).cloned().unwrap_or_default();
-                var_vals.push(val);
-            }
+        if let Err(e) = crate::storage::patch_config(&config) {
+            eprintln!("Error saving config to binary: {}", e);
         }
-        let config = crate::storage::Config {
-            autoquit,
-            width,
-            main_cmd: main_cmd.clone(),
-            var_values: var_vals,
-        };
 
         // 2. Clear UI log
         log_view_clone.buffer().set_text("");
@@ -353,15 +446,43 @@ pub fn activate(app: &Application) {
     key_ctrl.set_propagation_phase(gtk::PropagationPhase::Capture);
     let app_clone2 = app.clone();
     let run_cmd_key = run_cmd;
-    key_ctrl.connect_key_pressed(move |_, key, _, _| {
+    let compile_config_key = compile_config.clone();
+    let entry_focus = entry.clone();
+    let run_btn_focus = run_btn.clone();
+    let vbox_vars_focus = vbox_vars.clone();
+    let window_focus = window.clone();
+
+    key_ctrl.connect_key_pressed(move |_, key, _, state| {
+        let is_ctrl = state.contains(gtk::gdk::ModifierType::CONTROL_MASK);
+        if is_ctrl && (key == gtk::gdk::Key::s || key == gtk::gdk::Key::S) {
+            let config = compile_config_key();
+            if let Err(e) = crate::storage::patch_config(&config) {
+                eprintln!("Error saving config to binary: {}", e);
+            }
+            return glib::Propagation::Stop;
+        }
+
         match key {
             gtk::gdk::Key::Escape => {
                 app_clone2.quit();
                 glib::Propagation::Stop
             }
             gtk::gdk::Key::Return | gtk::gdk::Key::KP_Enter => {
-                run_cmd_key();
-                glib::Propagation::Stop
+                let is_input_focused = if let Some(focused) = GtkWindowExt::focus(&window_focus) {
+                    focused == *entry_focus.upcast_ref::<gtk4::Widget>()
+                        || focused.is_ancestor(&entry_focus)
+                        || focused == *run_btn_focus.upcast_ref::<gtk4::Widget>()
+                        || focused.is_ancestor(&vbox_vars_focus)
+                } else {
+                    false
+                };
+
+                if is_input_focused {
+                    run_cmd_key();
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                }
             }
             _ => glib::Propagation::Proceed,
         }
