@@ -52,6 +52,11 @@ then drop the built `shutton` wherever you need it!
 
 ## Version history
 
+*(as of v1.1.0 shutton is considered feature-complete; I don't expect adding/changing much of anything about it)*
+
+v1.1.0
+- [x] log output file now carries name from the binary
+
 v1.0.0
 - [x] pop policy-kit when encountering sudo requirement
 

@@ -155,8 +155,15 @@ pub fn activate(app: &Application) {
     let c_btn = Button::from_icon_name("edit-copy-symbolic");
     c_btn.set_tooltip_text(Some("Copy log to clipboard"));
     
+    let exe_path_opt = std::env::current_exe().ok();
+    let bin_name = exe_path_opt.as_ref()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("shutton");
+    let log_filename = format!("{}.log", bin_name);
+
     let o_btn = Button::from_icon_name("document-save-symbolic");
-    o_btn.set_tooltip_text(Some("Save log to output.log"));
+    o_btn.set_tooltip_text(Some(&format!("Save log to {}", log_filename)));
     
     buttons_box.append(&log_label);
     buttons_box.append(&v_btn);
@@ -320,12 +327,13 @@ pub fn activate(app: &Application) {
         }
     });
 
-    // Button [o] writes output.log next to binary
+    // Button [o] writes log next to binary
     let log_buffer_clone2 = log_buffer.clone();
+    let log_filename_clone = log_filename.clone();
     o_btn.connect_clicked(move |_| {
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(parent) = exe_path.parent() {
-                let log_path = parent.join("output.log");
+                let log_path = parent.join(&log_filename_clone);
                 let text = log_buffer_clone2.lock().unwrap().clone();
                 let _ = std::fs::write(log_path, text);
             }
